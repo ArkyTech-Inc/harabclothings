@@ -2,9 +2,9 @@
 
 
 # Environment variables
-.env*.local
+.env
 
-# Common ignores
+# Other ignores
 node_modules
 .next/
 .DS_Store
