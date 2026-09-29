@@ -13,7 +13,7 @@ const client = projectId
     })
   : null
 
-type SanityProduct = Omit<StoreProduct, "price"> & { price: number }
+type SanityProduct = Omit<StoreProduct, "price">
 
 export async function getProducts(): Promise<StoreProduct[]> {
   if (!client) return process.env.NODE_ENV === "development" ? demoProducts : []
@@ -22,7 +22,8 @@ export async function getProducts(): Promise<StoreProduct[]> {
     `*[_type == "product" && isAvailable == true && stock > 0] | order(_createdAt desc) {
       _id,
       name,
-      price,
+      "priceNgn": price,
+      stock,
       note,
       badge,
       tone,
@@ -32,5 +33,5 @@ export async function getProducts(): Promise<StoreProduct[]> {
     { next: { revalidate: 60, tags: ["products"] } },
   )
 
-  return products.map((product) => ({ ...product, price: formatNaira(product.price) }))
+  return products.map((product) => ({ ...product, price: formatNaira(product.priceNgn) }))
 }
