@@ -1,0 +1,1 @@
+import{r as e}from"./rolldown-runtime-hePW80VL.js";import{n as t}from"./_singletons-5eko8br7.js";import{n}from"./jsx-runtime-B3nUSe6W.js";var r=e(n(),1);function i(){let e=(0,r.useContext)(t);if(!e)throw Error(`useAddonDataset: missing context value`);return e}export{i as t};
