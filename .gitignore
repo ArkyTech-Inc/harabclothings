@@ -2,10 +2,32 @@
 
 
 # Environment variables
-.env
+.env*
+!.env.example
+!.env.*.example
 
-# Other ignores
-node_modules
+# Markdown files
+*.md
+
+# Dependencies and generated output
+node_modules/
 .next/
+out/
+build/
+dist/
+coverage/
+.turbo/
+.netlify/
+*.tsbuildinfo
+
+# Logs and local runtime files
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+*.local
+
+# Operating system files
 .DS_Store
-.SANITY_SETUP.md
+Thumbs.db
+desktop.ini

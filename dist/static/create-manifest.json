@@ -1,5 +1,5 @@
 {
-  "createdAt": "2026-09-29T22:39:27.900Z",
+  "createdAt": "2026-09-30T10:05:04.518Z",
   "studioVersion": "6.16.0",
   "version": 3,
   "workspaces": [
@@ -13,7 +13,7 @@
       },
       "name": "harab-clothings",
       "projectId": "ws88g2lw",
-      "schema": "a68f8885.create-schema.json",
+      "schema": "526f64d8.create-schema.json",
       "title": "Harab Clothings",
       "tools": "a1fd46b5.create-tools.json"
     }

@@ -18,6 +18,12 @@ const checkoutClient = projectId
   : null
 
 type SanityProduct = Omit<StoreProduct, "price" | "stock"> & { variants: ProductVariant[] }
+type SanityInventoryProduct = {
+  _id: string
+  _type: "product"
+  isAvailable: boolean
+  variants: ProductVariant[] | null
+}
 
 export async function getProducts(): Promise<StoreProduct[]> {
   if (!client) return process.env.NODE_ENV === "development" ? demoProducts : []
@@ -73,6 +79,21 @@ export async function getCheckoutProducts(productIds: string[]) {
       "variants": variants[]{ size }
     }`,
     { productIds },
+    { next: { revalidate: 0 } },
+  )
+}
+
+export async function getPublishedProductInventory(productId: string) {
+  if (!checkoutClient) return null
+
+  return checkoutClient.fetch<SanityInventoryProduct | null>(
+    `*[_type == "product" && _id == $productId][0] {
+      _id,
+      _type,
+      isAvailable,
+      "variants": variants[]{ size, stock }
+    }`,
+    { productId },
     { next: { revalidate: 0 } },
   )
 }

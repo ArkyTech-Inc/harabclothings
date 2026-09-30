@@ -51,6 +51,14 @@ export const productType = defineType({
       validation: (rule) => rule.regex(/^#[\da-f]{6}$/i),
     }),
     defineField({
+      name: "stock",
+      title: "Legacy total stock",
+      description: "Deprecated. Migrate this total into per-size variants; this value is not used by the storefront.",
+      type: "number",
+      hidden: true,
+      readOnly: true,
+    }),
+    defineField({
       name: "variants",
       title: "Sizes and stock",
       type: "array",
@@ -67,7 +75,8 @@ export const productType = defineType({
             }),
             defineField({
               name: "stock",
-              title: "Available quantity",
+              title: "Starting quantity",
+              description: "Imported into Supabase when this size is first published. After that, manage live stock in Supabase so orders are not overwritten.",
               type: "number",
               initialValue: 0,
               validation: (rule) => rule.required().integer().min(0),
