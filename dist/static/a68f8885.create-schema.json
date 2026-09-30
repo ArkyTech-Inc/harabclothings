@@ -147,7 +147,6 @@
         "title": "Image background color"
       },
       {
-        "initialValue": 0,
         "validation": [
           {
             "level": "error",
@@ -158,14 +157,81 @@
               },
               {
                 "flag": "min",
-                "constraint": 0
+                "constraint": 1
               }
             ]
           }
         ],
-        "name": "stock",
-        "type": "number",
-        "title": "Available quantity"
+        "of": [
+          {
+            "fields": [
+              {
+                "options": {
+                  "list": [
+                    "UK 8",
+                    "UK 10",
+                    "UK 12",
+                    "UK 14",
+                    "UK 16",
+                    "UK 18",
+                    "UK 20"
+                  ]
+                },
+                "validation": [
+                  {
+                    "level": "error",
+                    "rules": [
+                      {
+                        "flag": "valid",
+                        "constraint": [
+                          "UK 8",
+                          "UK 10",
+                          "UK 12",
+                          "UK 14",
+                          "UK 16",
+                          "UK 18",
+                          "UK 20"
+                        ]
+                      },
+                      {
+                        "flag": "presence",
+                        "constraint": "required"
+                      }
+                    ]
+                  }
+                ],
+                "name": "size",
+                "type": "string",
+                "title": "UK size"
+              },
+              {
+                "initialValue": 0,
+                "validation": [
+                  {
+                    "level": "error",
+                    "rules": [
+                      {
+                        "flag": "presence",
+                        "constraint": "required"
+                      },
+                      {
+                        "flag": "min",
+                        "constraint": 0
+                      }
+                    ]
+                  }
+                ],
+                "name": "stock",
+                "type": "number",
+                "title": "Available quantity"
+              }
+            ],
+            "type": "object"
+          }
+        ],
+        "name": "variants",
+        "type": "array",
+        "title": "Sizes and stock"
       },
       {
         "initialValue": false,
@@ -180,7 +246,7 @@
             ]
           }
         ],
-        "description": "Only published products marked available and with stock appear in the storefront.",
+        "description": "Only published products marked available and with at least one in-stock size appear in the storefront.",
         "name": "isAvailable",
         "type": "boolean",
         "title": "Available for sale"

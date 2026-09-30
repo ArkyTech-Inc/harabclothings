@@ -51,16 +51,42 @@ export const productType = defineType({
       validation: (rule) => rule.regex(/^#[\da-f]{6}$/i),
     }),
     defineField({
-      name: "stock",
-      title: "Available quantity",
-      type: "number",
-      initialValue: 0,
-      validation: (rule) => rule.required().integer().min(0),
+      name: "variants",
+      title: "Sizes and stock",
+      type: "array",
+      of: [
+        {
+          type: "object",
+          fields: [
+            defineField({
+              name: "size",
+              title: "UK size",
+              type: "string",
+              options: { list: ["UK 8", "UK 10", "UK 12", "UK 14", "UK 16", "UK 18", "UK 20"] },
+              validation: (rule) => rule.required(),
+            }),
+            defineField({
+              name: "stock",
+              title: "Available quantity",
+              type: "number",
+              initialValue: 0,
+              validation: (rule) => rule.required().integer().min(0),
+            }),
+          ],
+          preview: {
+            select: { title: "size", subtitle: "stock" },
+            prepare({ title, subtitle }) {
+              return { title, subtitle: `${subtitle ?? 0} in stock` }
+            },
+          },
+        },
+      ],
+      validation: (rule) => rule.required().min(1),
     }),
     defineField({
       name: "isAvailable",
       title: "Available for sale",
-      description: "Only published products marked available and with stock appear in the storefront.",
+      description: "Only published products marked available and with at least one in-stock size appear in the storefront.",
       type: "boolean",
       initialValue: false,
       validation: (rule) => rule.required(),

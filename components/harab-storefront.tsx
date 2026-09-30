@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, type FormEvent } from "react"
 import { formatNaira, type StoreProduct } from "@/lib/products"
 import {
   ArrowRight,
@@ -15,7 +15,8 @@ import {
   X,
 } from "lucide-react"
 
-type CartItem = { productId: string; quantity: number }
+type CartItem = { productId: string; size: string; quantity: number }
+type DeliveryRegion = "lagos" | "outside_lagos"
 
 const cartStorageKey = "harab-cart-v1"
 const freeDeliveryThreshold = 250_000
@@ -32,8 +33,21 @@ export default function HarabStorefront({ products }: { products: StoreProduct[]
   const [mobileOpen, setMobileOpen] = useState(false)
   const [saved, setSaved] = useState<number[]>([])
   const [cartItems, setCartItems] = useState<CartItem[]>([])
+  const [selectedSizes, setSelectedSizes] = useState<Record<string, string>>({})
   const [cartReady, setCartReady] = useState(false)
   const [cartMessage, setCartMessage] = useState("")
+  const [checkoutOpen, setCheckoutOpen] = useState(false)
+  const [checkoutBusy, setCheckoutBusy] = useState(false)
+  const [checkoutError, setCheckoutError] = useState("")
+  const [checkoutForm, setCheckoutForm] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    addressLine: "",
+    city: "",
+    state: "",
+    region: "lagos" as DeliveryRegion,
+  })
   const [openFilter, setOpenFilter] = useState<number | null>(null)
   const [orderConfirmed, setOrderConfirmed] = useState(false)
 
@@ -42,10 +56,11 @@ export default function HarabStorefront({ products }: { products: StoreProduct[]
       const storedItems: unknown = JSON.parse(window.localStorage.getItem(cartStorageKey) ?? "[]")
       if (Array.isArray(storedItems)) {
         setCartItems(storedItems.flatMap((item): CartItem[] => {
-          if (!item || typeof item.productId !== "string" || !Number.isInteger(item.quantity)) return []
+          if (!item || typeof item.productId !== "string" || typeof item.size !== "string" || !Number.isInteger(item.quantity)) return []
           const product = products.find((candidate) => candidate._id === item.productId)
-          if (!product || item.quantity < 1 || product.stock < 1) return []
-          return [{ productId: product._id, quantity: Math.min(item.quantity, product.stock) }]
+          const variant = product?.variants.find((candidate) => candidate.size === item.size)
+          if (!product || !variant || item.quantity < 1 || variant.stock < 1) return []
+          return [{ productId: product._id, size: variant.size, quantity: Math.min(item.quantity, variant.stock) }]
         }))
       }
     } catch {
@@ -65,46 +80,84 @@ export default function HarabStorefront({ products }: { products: StoreProduct[]
 
   const cartLines = cartItems.flatMap((item) => {
     const product = products.find((candidate) => candidate._id === item.productId)
-    return product ? [{ ...item, product }] : []
+    const variant = product?.variants.find((candidate) => candidate.size === item.size)
+    return product && variant ? [{ ...item, product, variant }] : []
   })
   const cartCount = cartLines.reduce((total, item) => total + item.quantity, 0)
   const cartSubtotal = cartLines.reduce((total, item) => total + item.product.priceNgn * item.quantity, 0)
   const freeDeliveryActive = Date.now() < freeDeliveryEndsAt
-  const qualifiesForFreeDelivery = freeDeliveryActive && cartSubtotal >= freeDeliveryThreshold
+  const qualifiesForFreeDelivery = checkoutForm.region === "lagos" && freeDeliveryActive && cartSubtotal >= freeDeliveryThreshold
+  const vatAmount = Math.round(cartSubtotal * 0.075)
+  const deliveryFee = qualifiesForFreeDelivery ? 0 : checkoutForm.region === "lagos" ? 15_000 : 30_000
 
-  const addToBag = (product: StoreProduct) => {
-    const existingItem = cartItems.find((item) => item.productId === product._id)
-    if (existingItem && existingItem.quantity >= product.stock) {
-      setCartMessage("You have added all available stock for this item.")
+  const addToBag = (product: StoreProduct, size: string) => {
+    const variant = product.variants.find((item) => item.size === size)
+    if (!variant || variant.stock < 1) return
+    const existingItem = cartItems.find((item) => item.productId === product._id && item.size === size)
+    if (existingItem && existingItem.quantity >= variant.stock) {
+      setCartMessage(`All available stock in ${size} is already in your bag.`)
       setCartOpen(true)
       return
     }
 
     setCartItems((items) => {
-      const currentItem = items.find((item) => item.productId === product._id)
-      if (!currentItem) return [...items, { productId: product._id, quantity: 1 }]
-      return items.map((item) => item.productId === product._id
-        ? { ...item, quantity: Math.min(item.quantity + 1, product.stock) }
+      const currentItem = items.find((item) => item.productId === product._id && item.size === size)
+      if (!currentItem) return [...items, { productId: product._id, size, quantity: 1 }]
+      return items.map((item) => item.productId === product._id && item.size === size
+        ? { ...item, quantity: Math.min(item.quantity + 1, variant.stock) }
         : item)
     })
-    setCartMessage(`${product.name} added to your bag.`)
+    setCartMessage(`${product.name} · ${size} added to your bag.`)
     setCartOpen(true)
   }
 
-  const changeQuantity = (productId: string, change: number) => {
+  const changeQuantity = (productId: string, size: string, change: number) => {
     const product = products.find((candidate) => candidate._id === productId)
-    if (!product) return
+    const variant = product?.variants.find((candidate) => candidate.size === size)
+    if (!product || !variant) return
     setCartItems((items) => items.flatMap((item) => {
-      if (item.productId !== productId) return [item]
-      const quantity = Math.min(item.quantity + change, product.stock)
+      if (item.productId !== productId || item.size !== size) return [item]
+      const quantity = Math.min(item.quantity + change, variant.stock)
       return quantity > 0 ? [{ ...item, quantity }] : []
     }))
     setCartMessage("")
   }
 
+  const submitCheckout = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setCheckoutBusy(true)
+    setCheckoutError("")
+    try {
+      const response = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customer: { name: checkoutForm.name, email: checkoutForm.email, phone: checkoutForm.phone },
+          deliveryRegion: checkoutForm.region,
+          deliveryAddress: {
+            addressLine: checkoutForm.addressLine,
+            city: checkoutForm.city,
+            state: checkoutForm.state,
+          },
+          items: cartItems,
+        }),
+      })
+      const result = await response.json()
+      if (!response.ok || typeof result.authorizationUrl !== "string") {
+        setCheckoutError(typeof result.error === "string" ? result.error : "Checkout could not be started. Please try again.")
+        return
+      }
+      window.location.assign(result.authorizationUrl)
+    } catch {
+      setCheckoutError("We could not reach checkout. Please try again.")
+    } finally {
+      setCheckoutBusy(false)
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#f8f6f1] text-[#24221f]">
-      {freeDeliveryActive && <div className="bg-[#24221f] px-6 py-2.5 text-center text-[10px] font-medium uppercase tracking-[0.26em] text-[#e9dfd0]">Complimentary delivery on orders over ₦250,000 until 1 January 2027 · Shop the new season</div>}
+      {freeDeliveryActive && <div className="bg-[#24221f] px-6 py-2.5 text-center text-[10px] font-medium uppercase tracking-[0.26em] text-[#e9dfd0]">Complimentary Lagos delivery on orders of ₦250,000 or more until 1 January 2027 · Shop the new season</div>}
       <header className="sticky top-0 z-30 border-b border-[#24221f]/10 bg-[#f8f6f1]/95 backdrop-blur-md">
         <div className="mx-auto flex h-[78px] max-w-[1440px] items-center justify-between px-5 md:px-10">
           <button aria-label="Open menu" className="md:hidden" onClick={() => setMobileOpen(true)}><Menu size={21} strokeWidth={1.5} /></button>
@@ -139,7 +192,6 @@ export default function HarabStorefront({ products }: { products: StoreProduct[]
                   <img src={product.image} alt={product.name} className="h-full w-full object-cover grayscale-[15%] transition duration-700 group-hover:scale-105" />
                   <span className="absolute left-3 top-3 bg-[#f8f6f1]/90 px-2 py-1 text-[8px] uppercase tracking-[0.15em]">{product.badge}</span>
                   <button aria-label={`Save ${product.name}`} onClick={() => setSaved(saved.includes(index) ? saved.filter((item) => item !== index) : [...saved, index])} className="absolute right-3 top-3 rounded-full bg-[#f8f6f1]/85 p-2"><Heart size={15} strokeWidth={1.4} fill={saved.includes(index) ? "#936f49" : "none"} /></button>
-                  <button onClick={() => addToBag(product)} className="absolute bottom-3 left-3 right-3 translate-y-2 bg-[#24221f]/95 py-3 text-[9px] font-semibold uppercase tracking-[0.16em] text-white opacity-0 transition-all group-hover:translate-y-0 group-hover:opacity-100">Add to bag</button>
                 </div>
                 <div className="mt-4 flex items-start justify-between gap-2">
                   <div>
@@ -147,6 +199,24 @@ export default function HarabStorefront({ products }: { products: StoreProduct[]
                     <p className="mt-2 text-[10px] uppercase tracking-[0.12em] text-[#8a8176]">{product.note}</p>
                   </div>
                   <p className="text-[11px] font-medium">{product.price}</p>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <select
+                    aria-label={`Choose UK size for ${product.name}`}
+                    value={selectedSizes[product._id] ?? ""}
+                    onChange={(event) => setSelectedSizes((sizes) => ({ ...sizes, [product._id]: event.target.value }))}
+                    className="min-w-0 flex-1 border border-[#24221f]/20 bg-transparent px-2 py-2 text-xs"
+                  >
+                    <option value="">Choose size</option>
+                    {product.variants.map((variant) => (
+                      <option key={variant.size} value={variant.size} disabled={variant.stock < 1}>{variant.size}{variant.stock < 1 ? " · Sold out" : ""}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => addToBag(product, selectedSizes[product._id] ?? "")}
+                    disabled={!selectedSizes[product._id] || !product.variants.some((variant) => variant.size === selectedSizes[product._id] && variant.stock > 0)}
+                    className="bg-[#24221f] px-3 py-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-white transition-colors hover:bg-[#936f49] disabled:cursor-not-allowed disabled:bg-[#8a8176]"
+                  >Add to bag</button>
                 </div>
               </article>
             ))}
@@ -180,7 +250,7 @@ export default function HarabStorefront({ products }: { products: StoreProduct[]
                   <p className="mt-2 text-sm text-[#6e665e]">Explore the collection to find your next favourite.</p>
                 </div>
               ) : (
-                cartLines.map(({ product, quantity }) => (
+                cartLines.map(({ product, quantity, size, variant }) => (
                   <div key={product._id} className="flex gap-4 border-b border-[#24221f]/10 pb-5">
                     <div className="h-28 w-24 shrink-0 overflow-hidden bg-[#eee9e1]">
                       <img src={product.image} alt={product.name} className="h-full w-full object-cover" />
@@ -188,13 +258,13 @@ export default function HarabStorefront({ products }: { products: StoreProduct[]
                     <div className="flex min-w-0 flex-1 flex-col justify-between">
                       <div>
                         <h3 className="font-serif text-xl">{product.name}</h3>
-                        <p className="mt-1 text-[10px] uppercase tracking-[0.12em] text-[#8a8176]">{product.note}</p>
+                        <p className="mt-1 text-[10px] uppercase tracking-[0.12em] text-[#8a8176]">{size} · {product.note}</p>
                       </div>
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-3 border border-[#24221f]/20 px-2 py-1">
-                          <button aria-label={quantity === 1 ? `Remove ${product.name}` : `Decrease ${product.name} quantity`} onClick={() => changeQuantity(product._id, -1)}><Minus size={12} /></button>
+                          <button aria-label={quantity === 1 ? `Remove ${product.name} ${size}` : `Decrease ${product.name} ${size} quantity`} onClick={() => changeQuantity(product._id, size, -1)}><Minus size={12} /></button>
                           <span className="min-w-4 text-center text-[11px]">{quantity}</span>
-                          <button aria-label={`Increase ${product.name} quantity`} disabled={quantity >= product.stock} onClick={() => changeQuantity(product._id, 1)}><Plus size={12} /></button>
+                          <button aria-label={`Increase ${product.name} ${size} quantity`} disabled={quantity >= variant.stock} onClick={() => changeQuantity(product._id, size, 1)}><Plus size={12} /></button>
                         </div>
                         <span className="text-[12px]">{formatNaira(product.priceNgn * quantity)}</span>
                       </div>
@@ -214,14 +284,45 @@ export default function HarabStorefront({ products }: { products: StoreProduct[]
             </div>
             <div className="border-t border-[#24221f]/15 pt-5">
               <div className="flex justify-between text-sm"><span>Subtotal</span><span>{formatNaira(cartSubtotal)}</span></div>
-              <div className="mt-3 flex justify-between text-sm">
-                <span>Delivery</span>
-                <span>{qualifiesForFreeDelivery ? "Complimentary" : "Calculated at checkout"}</span>
-              </div>
-              <button disabled className="mt-5 flex w-full cursor-not-allowed items-center justify-center gap-4 bg-[#8a8176] py-4 text-[10px] font-semibold uppercase tracking-[0.18em] text-white opacity-80">
-                Checkout coming soon <ArrowRight size={14} />
-              </button>
-              <p className="mt-3 text-center text-[10px] text-[#8a8176]">Secure checkout is being set up. No order or payment has been placed.</p>
+              {checkoutOpen && (
+                <>
+                  <div className="mt-3 flex justify-between text-sm"><span>VAT (7.5%)</span><span>{formatNaira(vatAmount)}</span></div>
+                  <div className="mt-3 flex justify-between text-sm"><span>Delivery</span><span>{formatNaira(deliveryFee)}</span></div>
+                  <div className="mt-3 flex justify-between border-t border-[#24221f]/15 pt-3 text-sm font-semibold"><span>Estimated total</span><span>{formatNaira(cartSubtotal + vatAmount + deliveryFee)}</span></div>
+                </>
+              )}
+              {!checkoutOpen ? (
+                <button
+                  disabled={cartCount === 0}
+                  onClick={() => { setCheckoutOpen(true); setCheckoutError("") }}
+                  className="mt-5 flex w-full items-center justify-center gap-4 bg-[#24221f] py-4 text-[10px] font-semibold uppercase tracking-[0.18em] text-white transition-colors hover:bg-[#936f49] disabled:cursor-not-allowed disabled:bg-[#8a8176]"
+                >Continue to checkout <ArrowRight size={14} /></button>
+              ) : (
+                <form onSubmit={submitCheckout} className="mt-5 max-h-[45vh] space-y-3 overflow-y-auto pr-1">
+                  <label className="block text-[10px] font-semibold uppercase tracking-[0.12em]" htmlFor="checkout-name">Full name</label>
+                  <input id="checkout-name" autoComplete="name" required minLength={2} maxLength={120} value={checkoutForm.name} onChange={(event) => setCheckoutForm((form) => ({ ...form, name: event.target.value }))} className="w-full border border-[#24221f]/20 bg-transparent px-3 py-3 text-sm" />
+                  <label className="block text-[10px] font-semibold uppercase tracking-[0.12em]" htmlFor="checkout-email">Email</label>
+                  <input id="checkout-email" type="email" autoComplete="email" required maxLength={254} value={checkoutForm.email} onChange={(event) => setCheckoutForm((form) => ({ ...form, email: event.target.value }))} className="w-full border border-[#24221f]/20 bg-transparent px-3 py-3 text-sm" />
+                  <label className="block text-[10px] font-semibold uppercase tracking-[0.12em]" htmlFor="checkout-phone">Phone</label>
+                  <input id="checkout-phone" type="tel" autoComplete="tel" required value={checkoutForm.phone} onChange={(event) => setCheckoutForm((form) => ({ ...form, phone: event.target.value }))} className="w-full border border-[#24221f]/20 bg-transparent px-3 py-3 text-sm" />
+                  <label className="block text-[10px] font-semibold uppercase tracking-[0.12em]" htmlFor="checkout-region">Delivery region</label>
+                  <select id="checkout-region" value={checkoutForm.region} onChange={(event) => setCheckoutForm((form) => ({ ...form, region: event.target.value as DeliveryRegion }))} className="w-full border border-[#24221f]/20 bg-[#f8f6f1] px-3 py-3 text-sm">
+                    <option value="lagos">Lagos</option>
+                    <option value="outside_lagos">Outside Lagos</option>
+                  </select>
+                  <label className="block text-[10px] font-semibold uppercase tracking-[0.12em]" htmlFor="checkout-address">Street address</label>
+                  <input id="checkout-address" autoComplete="street-address" required minLength={5} maxLength={300} value={checkoutForm.addressLine} onChange={(event) => setCheckoutForm((form) => ({ ...form, addressLine: event.target.value }))} className="w-full border border-[#24221f]/20 bg-transparent px-3 py-3 text-sm" />
+                  <label className="block text-[10px] font-semibold uppercase tracking-[0.12em]" htmlFor="checkout-city">City / area</label>
+                  <input id="checkout-city" autoComplete="address-level2" required minLength={2} maxLength={100} value={checkoutForm.city} onChange={(event) => setCheckoutForm((form) => ({ ...form, city: event.target.value }))} className="w-full border border-[#24221f]/20 bg-transparent px-3 py-3 text-sm" />
+                  {checkoutForm.region === "outside_lagos" && <p className="text-xs leading-5 text-[#6e665e]">Outside-Lagos delivery is currently available at the flat rate shown above.</p>}
+                  {checkoutError && <p role="alert" className="text-xs text-red-700">{checkoutError}</p>}
+                  <button type="submit" disabled={checkoutBusy || cartCount === 0} className="flex w-full items-center justify-center gap-4 bg-[#24221f] py-4 text-[10px] font-semibold uppercase tracking-[0.18em] text-white transition-colors hover:bg-[#936f49] disabled:cursor-wait disabled:opacity-60">
+                    {checkoutBusy ? "Connecting to Paystack…" : "Continue to Paystack"} <ArrowRight size={14} />
+                  </button>
+                  <p className="text-center text-[10px] leading-4 text-[#8a8176]">Delivery is arranged through Chowdeck after payment confirmation. Payment is completed on Paystack.</p>
+                </form>
+              )}
+              {!checkoutOpen && <p className="mt-3 text-center text-[10px] text-[#8a8176]">VAT and delivery are shown before you continue to payment.</p>}
             </div>
           </aside>
         </div>
